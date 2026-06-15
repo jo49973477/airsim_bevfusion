@@ -9,7 +9,7 @@ If you download it, use the ```--recursive``` beside.
 This code works inside the docker container. At first, you should build Dockerfile on your own, and make a docker image.
 ```bash
 cd docker
-docker build -t  bevfusion_dev:airsim
+docker build -t  bevfusion_dev:airsim .
 ```
 
 and for the xhost, network connection, you should build the Docker container using the given ```docker-compose.yml```.
