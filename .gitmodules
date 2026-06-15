@@ -1,0 +1,3 @@
+[submodule "bevfusion"]
+	path = bevfusion
+	url = https://github.com/mit-han-lab/bevfusion
