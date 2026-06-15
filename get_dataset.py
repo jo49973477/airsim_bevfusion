@@ -3,6 +3,7 @@ import math
 import time
 import uuid
 import json
+import argparse
 import pickle
 from datetime import datetime
 
@@ -12,7 +13,7 @@ import cv2
 from scipy.spatial.transform import Rotation as R
 import utils.box_np_ops
 
-# 1. 📂 저장 경로 설정 (누씬즈 디렉토리 구조)
+# 1. 📂 Set save paths (NuScenes directory structure)
 
 class NuScenesMaker:
     def __init__(self, 
@@ -54,35 +55,35 @@ class NuScenesMaker:
     
     
     def _load_sensor_configs(self, settings_path, vehicle_name, lidar_name):
-        """AirSim settings.json 파일을 읽어서 센서 오프셋을 자동 추출하는 함수"""
-        # OS에 맞게 ~를 홈 디렉토리 절대 경로로 변환
+        """Function to automatically extract sensor offsets by reading the AirSim settings.json file"""
+        # Convert ~ to absolute home directory path depending on OS
         settings_path = os.path.expanduser(settings_path)
         
-        # 파일이 없으면 에러 방지용으로 빈 딕셔너리 반환하거나 에러 뿜기
+        # Raise an error if the file doesn't exist to prevent silent failures
         if not os.path.exists(settings_path):
-            raise FileNotFoundError(f"🚨 {settings_path} 파일이 없습니다! 경로를 확인해주세요.")
+            raise FileNotFoundError(f"🚨 Cannot find {settings_path}! Please check the path.")
 
         with open(settings_path, 'r', encoding='utf-8') as f:
             settings = json.load(f)
             
-        # 캡틴의 JSON 구조를 따라 "SimpleFlight" 드론의 설정으로 파고들기
+        # Dig into "SimpleFlight" drone settings following the custom JSON structure
         drone_settings = settings.get("Vehicles", {}).get(vehicle_name, {})
         cameras = drone_settings.get("Cameras", {})
         
         configs = {}
         
-        # 1. 📸 카메라 설정 긁어오기
+        # 1. 📸 Extract camera settings
         for cam_name, cam_info in cameras.items():
             configs[cam_name] = {
                 "t": [cam_info.get("X", 0.0), cam_info.get("Y", 0.0), cam_info.get("Z", 0.0)],
                 "r": [cam_info.get("Pitch", 0.0), cam_info.get("Roll", 0.0), cam_info.get("Yaw", 0.0)]
             }
             
-        # 2. 🧊 라이다 설정 긁어오기 (캡틴의 JSON 기준 'Lidar1'이라는 키값 사용)
+        # 2. 🧊 Extract LiDAR settings (using 'Lidar1' key based on JSON config)
         lidar_info = drone_settings.get("Sensors", {}).get(self.lidar_name, {})
         print(lidar_info)
         if lidar_info:
-            # 🌟 NuScenes 포맷에 맞춰 파이썬 내부에서는 'LIDAR_TOP'으로 이름 변경!
+            # 🌟 Rename to 'LIDAR_TOP' internally to match NuScenes format!
             configs["LIDAR_TOP"] = {
                 "t": [lidar_info.get("X", 0.0), lidar_info.get("Y", 0.0), lidar_info.get("Z", 0.0)],
                 "r": [lidar_info.get("Pitch", 0.0), lidar_info.get("Roll", 0.0), lidar_info.get("Yaw", 0.0)]
@@ -113,21 +114,21 @@ class NuScenesMaker:
             
             # save!
             cv2.imwrite(save_path, img_rgb)
-            print(f"✅ 저장 완료: {save_path}")
+            print(f"✅ Save complete: {save_path}")
         
         return file_paths
     
     
     
     def airsim_pose_to_matrix(self, pose):
-        """AirSim의 Pose(Position + Quaternion)를 4x4 변환 행렬로 바꾸는 마법의 함수"""
+        """Magic function to convert AirSim Pose (Position + Quaternion) into a 4x4 transformation matrix"""
         t = [pose.position.x_val, pose.position.y_val, pose.position.z_val]
         q = [pose.orientation.x_val, pose.orientation.y_val, pose.orientation.z_val, pose.orientation.w_val]
         
-        # 쿼터니언을 3x3 회전 행렬로 변환
+        # Convert quaternion to 3x3 rotation matrix
         rotation_matrix = R.from_quat(q).as_matrix()
         
-        # 4x4 Homogeneous Transformation Matrix 조립
+        # Assemble 4x4 Homogeneous Transformation Matrix
         T = np.eye(4, dtype=np.float32)
         T[:3, :3] = rotation_matrix
         T[:3, 3] = t
@@ -136,9 +137,9 @@ class NuScenesMaker:
     
     
     def config_to_matrix(self, cfg):
-        """정적 설정을 4x4 변환 행렬로 바꾸는 함수"""
+        """Function to convert static configurations into a 4x4 transformation matrix"""
         t = cfg["t"]
-        # 오일러 각도(Pitch, Roll, Yaw)를 회전 행렬로 변환
+        # Convert Euler angles (Pitch, Roll, Yaw) to rotation matrix
         rotation_matrix = R.from_euler('xyz', cfg["r"], degrees=True).as_matrix()
         
         T = np.eye(4, dtype=np.float32)
@@ -153,21 +154,21 @@ class NuScenesMaker:
                                               vehicle_name= self.vehicle_name)
         
         if len(lidar_data.point_cloud) < 3:
-            print("⚠️ 라이다 데이터가 없습니다!")
+            print("⚠️ No LiDAR data found!")
             return
         
         points = np.array(lidar_data.point_cloud, dtype=np.float32)
-        points = points.reshape(-1, 3) # [N, 3] 형태
+        points = points.reshape(-1, 3) # [N, 3] shape
         padding = np.zeros((points.shape[0], 2), dtype=np.float32)
 
         filename = f"{scene_id}__LIDAR_TOP__{timestamp}.pcd.bin"
         filepath = os.path.join(self.sample_dir, "LIDAR_TOP", filename)
         rel_path = os.path.join("samples", "LIDAR_TOP", filename)
 
-        # 4. 바이너리로 파일에 쾅! 박아버리기!
+        # 4. Smash it into a binary file!
         points_5d = np.hstack([points, padding])
         points_5d.tofile(filepath)
-        print(f"📡 라이다 저장 완료: {filepath} ({points.shape[0]} points)")
+        print(f"📡 LiDAR save complete: {filepath} ({points.shape[0]} points)")
         
         return rel_path, points
     
@@ -176,13 +177,13 @@ class NuScenesMaker:
     def get_info(self, scene_id, timestamp, cam_paths, lidar_path, lidar_points):
         current_token = uuid.uuid4().hex
         
-        # 🌟 1. 루트 구조 완벽 재현 (radars 추가!)
+        # 🌟 1. Perfectly recreate root structure (radars added!)
         dic = {
-            "lidar_path": os.path.join(self.docker_path, lidar_path), # 주의: 여기서 lidar_path는 Docker container 안에 들어갈 절대경로여야 함!
+            "lidar_path": os.path.join(self.docker_path, lidar_path), # Note: lidar_path here must be the absolute path inside the Docker container!
             "token": current_token, 
             "sweeps": [], 
             "cams": {},
-            "radars": {} # BEVFusion이 Key 에러 뿜지 않도록 빈 공간 할당
+            "radars": {} # Allocate empty space so BEVFusion doesn't spit out Key errors
         }
         
         drone_pose = self.client.simGetVehiclePose(vehicle_name=self.vehicle_name)
@@ -197,7 +198,7 @@ class NuScenesMaker:
         dic["lidar2ego_translation"] = T_lidar2ego[:3, 3].tolist()
         dic["lidar2ego_rotation"] = [lidar2ego_r[3], lidar2ego_r[0], lidar2ego_r[1], lidar2ego_r[2]]
         
-        # 🌟 2. cams 하위 구조 완벽 재현 & float64 강제 적용
+        # 🌟 2. Perfectly recreate cams substructure & force float64
         for cam_name, cam_path in zip(self.cam_names, cam_paths):
             if hasattr(self, "sensors_config") and cam_name in self.sensors_config:
                 T_cam2ego = self.config_to_matrix(self.sensors_config[cam_name])
@@ -212,7 +213,7 @@ class NuScenesMaker:
                 [800.0,   0.0, 800.0],
                 [  0.0, 800.0, 450.0],
                 [  0.0,   0.0,   1.0]
-            ], dtype=np.float64) # info_invest.txt 규격 맞춤
+            ], dtype=np.float64) # Match info_invest.txt specifications
 
             T_ego2lidar = np.linalg.inv(T_lidar2ego)
             T_cam2ego_mat = np.eye(4)
@@ -221,7 +222,7 @@ class NuScenesMaker:
             T_cam2lidar = T_ego2lidar @ T_cam2ego_mat
 
             dic["cams"][cam_name] = {
-                "data_path": os.path.join(self.docker_path, cam_path), # 주의: '절대경로'
+                "data_path": os.path.join(self.docker_path, cam_path), # Note: 'Absolute path'
                 "type": cam_name,
                 "sample_data_token": uuid.uuid4().hex,
                 "sensor2ego_translation": cam2ego_trans,
@@ -234,7 +235,7 @@ class NuScenesMaker:
                 "cam_intrinsic": cam_intrinsic
             }
         
-        # 🌟 3. 시간 및 토큰 (prev 키 추가!)
+        # 🌟 3. Timestamp and Token (add prev key!)
         dic["timestamp"] = timestamp
         dic["prev_token"] = self.prev_token
         dic["prev"] = self.prev_token if self.prev_token else "" 
@@ -242,7 +243,7 @@ class NuScenesMaker:
         
         gt_boxes, gt_names, gt_velocity, num_lidar_pts = self.get_bbox(lidar_points)
 
-        # 🌟 4. 데이터셋 라벨 자료형(dtype) 완벽 매칭 (핵심!)
+        # 🌟 4. Perfectly match dataset label datatypes (dtype) (Core!)
         if len(gt_boxes) > 0:
             dic["gt_boxes"] = gt_boxes.astype(np.float64)
             dic["gt_names"] = gt_names.astype("<U32")
@@ -265,12 +266,12 @@ class NuScenesMaker:
         gt_boxes, gt_names, gt_velocity = [], [], []
         
         base_sizes = {
-            "Car": [4.0, 2.0, 1.5],     # 차는 4m x 2m x 1.5m
-            "Birch": [0.5, 0.5, 4.0],   # 나무는 얇고 높게!
-            "Bench": [1.5, 0.6, 0.8]    # 벤치는 가로로 길게!
+            "Car": [4.0, 2.0, 1.5],     # Car is 4m x 2m x 1.5m
+            "Birch": [0.5, 0.5, 4.0],   # Tree is thin and tall!
+            "Bench": [1.5, 0.6, 0.8]    # Bench is long horizontally!
         }
 
-        # 🌟 1. KFP 신메뉴 순회: ["Car", "Birch", "Bench"] 싹 다 뒤지기!
+        # 🌟 1. Iterate through target classes: Scour all ["Car", "Birch", "Bench"]!
         for cls_name in self.classes:
             obj_names = self.client.simListSceneObjects(f"{cls_name}.*")
             
@@ -278,22 +279,22 @@ class NuScenesMaker:
 
             for obj in obj_names:
                 pose = self.client.simGetObjectPose(obj)
-                if math.isnan(pose.position.x_val): continue # 에러 방지용
+                if math.isnan(pose.position.x_val): continue # To prevent errors
 
                 x, y, z = pose.position.x_val, pose.position.y_val, pose.position.z_val
                 _, _, yaw = airsim.to_eularian_angles(pose.orientation) 
 
                 scale = self.client.simGetObjectScale(obj)
-                # 💡 주의: 클래스마다 실제 크기가 다르다면 여기서 분기 처리를 해주는 게 더 정확해!
-                # 일단은 캡틴의 임시 로직을 그대로 사용!
+                # 💡 Note: If actual sizes vary by class, handling branches here is more accurate!
+                # Sticking with the temporary logic for now!
                 l, w, h = scale.x_val * base_l, scale.y_val * base_w, scale.z_val * base_h
 
                 gt_boxes.append([x, y, z, l, w, h, yaw])
-                # NuScenes는 대문자 섞인 이름을 안 좋아해! 소문자로 통일 ('car', 'birch' 등)
+                # NuScenes hates mixed case names! Unify to lowercase ('car', 'birch', etc.)
                 gt_names.append(cls_name.lower()) 
                 gt_velocity.append([0.0, 0.0])
 
-        # --- 2. 누씬즈 포맷 및 🌟 KFP 특제 불량품 필터링 🌟 ---
+        # --- 2. NuScenes format & 🌟 Special Outlier Filtering 🌟 ---
         if len(gt_boxes) > 0:
             gt_boxes = np.array(gt_boxes, dtype=np.float32)
             gt_names = np.array(gt_names)
@@ -303,10 +304,10 @@ class NuScenesMaker:
                 point_indices = box_np_ops.points_in_rbbox(lidar_points, gt_boxes)
                 num_lidar_pts = point_indices.sum(axis=0).astype(np.int32)
                 
-                # 🌟 필터링 마법: 라이다 점이 1개라도 찍힌 객체만 True!
+                # 🌟 Filtering magic: Only objects with at least 1 LiDAR point get True!
                 valid_mask = num_lidar_pts > 0
                 
-                # 시야 밖에 있는 놈들은 여기서 장부에서 영구 제명됨!
+                # Things out of sight are permanently expelled from the ledger here!
                 gt_boxes = gt_boxes[valid_mask]
                 gt_names = gt_names[valid_mask]
                 gt_velocity = gt_velocity[valid_mask]
@@ -314,7 +315,7 @@ class NuScenesMaker:
             else:
                 num_lidar_pts = np.zeros(len(gt_boxes), dtype=np.int32)
                 
-        # 3. 방어 코드: 필터링하고 났더니 차가 한 대도 안 남았을 경우를 대비
+        # 3. Defense code: Prepare for the case where 0 cars remain after filtering
         if len(gt_boxes) == 0:
             gt_boxes = np.zeros((0, 7), dtype=np.float32)
             gt_names = np.array([])
@@ -328,21 +329,21 @@ class NuScenesMaker:
     def run(self):
         
         # -----------------------------------------------------
-        # 1. 📂 기존 PKL 파일 확인 및 장부 불러오기 (이어쓰기 모드)
+        # 1. 📂 Check existing PKL file and load ledger (Append mode)
         # -----------------------------------------------------
         if os.path.exists(self.pickle_path):
-            print(f"📂 기존 장부({self.pickle_path})를 발견했습니다! 해동해서 이어서 작성합니다.")
+            print(f"📂 Found existing ledger ({self.pickle_path})! Defrosting and appending.")
             with open(self.pickle_path, "rb") as f:
                 dataset_dict = pickle.load(f)
         else:
-            print("📝 기존 장부가 없습니다. 누씬즈 v1.0-mini 규격으로 새 장부를 만듭니다!")
+            print("📝 No existing ledger. Creating a new one with NuScenes v1.0-mini specs!")
             dataset_dict = {
                 "metadata": {"version": "v1.0-mini"},
                 "infos": []
             }
 
         try:
-            print("🚁 데이터 수집 시작! (Ctrl+C를 누르면 안전하게 저장하고 종료됩니다)")
+            print("🚁 Starting data collection! (Press Ctrl+C to safely save and exit)")
             while True:
                 start_time = time.time()
                 
@@ -356,20 +357,43 @@ class NuScenesMaker:
                 if lidar_path is not None:
                     info = self.get_info(scene_id, timestamp, cam_paths, lidar_path, lidar_points)
                     dataset_dict["infos"].append(info)
-                    print(f"✅ 프레임 추가 완료! (현재 장부에 쌓인 총 데이터: {len(dataset_dict['infos'])}개)")
+                    print(f"✅ Frame added! (Total data stacked in current ledger: {len(dataset_dict['infos'])})")
                 
                 elapsed = time.time() - start_time
                 time.sleep(max(0, self.period - elapsed))
                 
         except KeyboardInterrupt:
             
-            print("\n🛑 수집 종료 신호 감지! 지금까지 모은 데이터를 PKL로 굽습니다...")
+            print("\n🛑 Collection end signal detected! Baking collected data into PKL...")
             with open(self.pickle_path, "wb") as f:
                 pickle.dump(dataset_dict, f)
-            print(f"🎉 저장 완료! (최종 데이터 수: {len(dataset_dict['infos'])} 프레임)")
+            print(f"🎉 Save complete! (Final frame count: {len(dataset_dict['infos'])})")
 
+
+
+def parse_args():
+    parser = argparse.ArgumentParser(description="AirSim NuScenes Dataset Maker")
+    
+    parser.add_argument("--base-dir", type=str, default="/home/yeongyoo/03_Dataset/03_FineTune/", help="the basic path to save the dataset")
+    parser.add_argument("--pkl-file", type=str, default="nuscenes_infos_train.pkl", help="pickle file name to save")
+    
+    # 리스트 형태는 nargs='+'를 사용하면 터미널에서 띄어쓰기로 여러 개를 받을 수 있어!
+    parser.add_argument("--cam-names", nargs="+", type=str, 
+                        default=['CAM_FRONT', 'CAM_FRONT_LEFT', 'CAM_FRONT_RIGHT', 'CAM_BACK', 'CAM_BACK_LEFT', 'CAM_BACK_RIGHT'],
+                        help="camera name list to use")
+                        
+    parser.add_argument("--settings-path", type=str, default="~/Documents/AirSim/settings.json", help="AirSim settings.json path to extract sensor configurations")
+    parser.add_argument("--vehicle-name", type=str, default="Drone", help="AirSim car(or drone) name")
+    parser.add_argument("--lidar-name", type=str, default="Lidar1", help="LiDar name")
+    parser.add_argument("--docker-path", type=str, default="/dataset/", help="The internal dataset path inside the Docker Container")
+    parser.add_argument("--frequency", type=int, default=10, help="Data accumulation frequency (Hz)")
+    
+    parser.add_argument("--classes", nargs="+", type=str, default=["Car", "Bench", "Birch"], help="Class names to include in the dataset (must match AirSim object names)")
+    
+    return parser.parse_args()
 
 
 if __name__ == "__main__":
-    maker = NuScenesMaker()
+    args = parse_args()
+    maker = NuScenesMaker(**vars(args))
     maker.run()

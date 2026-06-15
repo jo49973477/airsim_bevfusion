@@ -35,3 +35,8 @@ You can see the outcome pictures like this:
 
 ![LiDar](pictures/1781056831.537052-airsim_birthday_token.png)
 ![Image](pictures/1781056847.854978-airsim_birthday_token.png)
+
+## Intentions
+- **carop.py:** The car operating controller in the AirSim environment.
+- **get_dataset.py:** By operating the car, you can get Nuscenes-styled dataset.
+- **simulator.py:** You can get visualized data of 3D Object Detection via BEVFusion model.
