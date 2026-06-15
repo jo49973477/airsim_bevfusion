@@ -6,7 +6,11 @@ This code is designed to test [BEVFusion model](https://github.com/mit-han-lab/b
 ## How to use
 If you download it, use the ```--recursive``` beside.
 
-This code works inside the docker container. The given dockerfile is saved inside the DockerHub. You can just pull it.
+This code works inside the docker container. At first, you should build Dockerfile on your own, and make a docker image.
+```bash
+cd docker
+docker build -t  bevfusion_dev:airsim
+```
 
 and for the xhost, network connection, you should build the Docker container using the given ```docker-compose.yml```.
 ```bash
