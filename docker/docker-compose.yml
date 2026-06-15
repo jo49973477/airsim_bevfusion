@@ -1,0 +1,32 @@
+services:
+  bevfusion-env:
+    image: bevfusion_dev:airsim
+    container_name: bevfusion_dev
+    command: /bin/bash
+
+    stdin_open: true 
+    tty: true        
+
+    shm_size: 16gb
+    
+    network_mode: "host"
+    environment:
+      - DISPLAY=${DISPLAY}
+      - QT_X11_NO_MITSHM=1
+      - ROS_DOMAIN_ID=0
+
+    ipc: "host"
+    pid: "host"
+    
+    volumes:
+      - [THIS DIRECTORY]:/workspace/bevfusion
+      - [THIS DIRECTORY]/bevfusion:/workspace/bevfusion
+      - [REPOSITORY OF DATASET]:/dataset
+      - /home/[USERNAME]/Documents/AirSim:/airsim
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
